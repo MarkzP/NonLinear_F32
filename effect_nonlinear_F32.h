@@ -20,6 +20,8 @@
 
 class AudioEffectNonLinear_F32 : public AudioStream_F32
 {
+//GUI: inputs:1, outputs:1  //this line used for automatic generation of GUI node
+//GUI: shortName:effect_NonLinear	
   public:
     AudioEffectNonLinear_F32(void): AudioStream_F32(1, inputQueueArray) {}
     AudioEffectNonLinear_F32(const AudioSettings_F32 &settings): AudioStream_F32(1, inputQueueArray) {}
@@ -29,13 +31,11 @@ class AudioEffectNonLinear_F32 : public AudioStream_F32
       audio_block_f32_t *block = AudioStream_F32::receiveWritable_f32(0);
       if (!block) return;
       
-      float curve = aCurve;
-      float pre = aPre;
-    
       for (int i = 0; i < block->length; i++)
       {
-        float x = block->data[i] * pre;
-        block->data[i] = (curve + 1.0f) * x / (1.0f + fabsf(curve * x));
+        float x = block->data[i] * aPre;
+        block->data[i] = (aCurve + 1.0f) * x / (1.0f + fabsf(aCurve * x));
+		block->data[i] *= aPost;
       }
     
       AudioStream_F32::transmit(block);
@@ -43,11 +43,12 @@ class AudioEffectNonLinear_F32 : public AudioStream_F32
     }
 
     void curve(float curve) { aCurve = curve; }
-    void gain(float u) { aPre = u; }
+    void gain(float pre, float post = 1.0f) { aPre = pre; aPost = post; }
   private:
     audio_block_f32_t *inputQueueArray[1];
-    float aCurve = 3.3f;
+    float aCurve = 0.0f;
     float aPre = 1.0f;
+	float aPost = 1.0f;
 };
 
 #endif
