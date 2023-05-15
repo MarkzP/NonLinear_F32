@@ -15,30 +15,19 @@
 #define INTERPOLATION   5
 #define RAW_BUFFER_SIZE 128
 #define INT_BUFFER_SIZE (RAW_BUFFER_SIZE * INTERPOLATION)
-#define INT_NUMTAPS   45
+#define INT_NUMTAPS   55
 
 class AudioEffectNonLinear_F32 : public AudioStream_F32
 {
 //GUI: inputs:1, outputs:1  //this line used for automatic generation of GUI node
 //GUI: shortName:effect_NonLinear	
 	public:
-		typedef enum
-		{
-			Drive_Linear,
-			Drive_Abs,
-			Drive_Sigmoid,
-			Drive_Tanh,
-			Drive_Cubic,
-			Drive_Hard,
-		} DriveTypes;
-		
 		AudioEffectNonLinear_F32(void): AudioStream_F32(1, inputQueueArray) { }
 		AudioEffectNonLinear_F32(const AudioSettings_F32 &settings): AudioStream_F32(1, inputQueueArray) { }
 
 		bool begin(bool multirate = true);
-		
-		// Gain: 0.0 (almost linear) to 1.0 (overdrive)
-		void gain(float gain = 1.0f, DriveTypes drive = Drive_Sigmoid);
+    
+		void gain(float gain = 1.0f, float curve = 0.0f);
 		
 		void level(float level = 1.0f);
 		
@@ -46,10 +35,10 @@ class AudioEffectNonLinear_F32 : public AudioStream_F32
 
 	private:
 		audio_block_f32_t *inputQueueArray[1];
-		DriveTypes _driveType = Drive_Sigmoid;
 		float _gain = 1.0f;
-		float _comp = 1.0f;
+    float _curve = 0.0f;
 		float _level = 1.0f;
+    float _comp = 1.0f;
 	
 		arm_fir_interpolate_instance_f32 _interpolator;
 		arm_fir_decimate_instance_f32 _decimator;
