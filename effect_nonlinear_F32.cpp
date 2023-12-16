@@ -2,121 +2,158 @@
 
 #include "arm_math.h"
 
+
 // The interpolation/decimation filter has been designed to attenuate the upper frequencies way below nyquist.
 // Tuned by ear to offer the best compromise between performance, sound quality & aliasing rejection
-// https://www.arc.id.au/FilterDesign.html lpf 13.0kHz@220.5kHz, 86dB, 65 taps
+// https://www.arc.id.au/FilterDesign.html lpf 15.0kHz@220.5kHz, 73dB, 75 taps
 float FIR_coeffs[INT_NUMTAPS] =
 {
--0.000009, 
--0.000032, 
--0.000072, 
--0.000123, 
--0.000167, 
--0.000172, 
--0.000095, 
-0.000108, 
-0.000468, 
-0.000981, 
-0.001587, 
-0.002162, 
-0.002521, 
-0.002434, 
-0.001675, 
-0.000079, 
--0.002387, 
--0.005565, 
--0.009059, 
--0.012241, 
--0.014290, 
--0.014294, 
--0.011384, 
--0.004897, 
-0.005469, 
-0.019537, 
-0.036598, 
-0.055436, 
-0.074442, 
-0.091806, 
-0.105752, 
-0.114786, 
-0.117914, 
-0.114786, 
-0.105752, 
-0.091806, 
-0.074442, 
-0.055436, 
-0.036598, 
-0.019537, 
-0.005469, 
--0.004897, 
--0.011384, 
--0.014294, 
--0.014290, 
--0.012241, 
--0.009059, 
--0.005565, 
--0.002387, 
-0.000079, 
-0.001675, 
-0.002434, 
-0.002521, 
-0.002162, 
-0.001587, 
-0.000981, 
-0.000468, 
-0.000108, 
--0.000095, 
--0.000172, 
--0.000167, 
--0.000123, 
--0.000072, 
--0.000032, 
--0.000009  
+-0.000005, 
+0.000027, 
+0.000096, 
+0.000196, 
+0.000305, 
+0.000378, 
+0.000359, 
+0.000189, 
+-0.000164, 
+-0.000689, 
+-0.001310, 
+-0.001883, 
+-0.002211, 
+-0.002085, 
+-0.001338, 
+0.000086, 
+0.002082, 
+0.004348, 
+0.006404, 
+0.007655, 
+0.007507, 
+0.005519, 
+0.001548, 
+-0.004120, 
+-0.010716, 
+-0.017024, 
+-0.021516, 
+-0.022585, 
+-0.018828, 
+-0.009345, 
+0.006020, 
+0.026534, 
+0.050584, 
+0.075837, 
+0.099543, 
+0.118932, 
+0.131633, 
+0.136054, 
+0.131633, 
+0.118932, 
+0.099543, 
+0.075837, 
+0.050584, 
+0.026534, 
+0.006020, 
+-0.009345, 
+-0.018828, 
+-0.022585, 
+-0.021516, 
+-0.017024, 
+-0.010716, 
+-0.004120, 
+0.001548, 
+0.005519, 
+0.007507, 
+0.007655, 
+0.006404, 
+0.004348, 
+0.002082, 
+0.000086, 
+-0.001338, 
+-0.002085, 
+-0.002211, 
+-0.001883, 
+-0.001310, 
+-0.000689, 
+-0.000164, 
+0.000189, 
+0.000359, 
+0.000378, 
+0.000305, 
+0.000196, 
+0.000096, 
+0.000027, 
+-0.000005  
 };
+
+float AudioEffectNonLinear_F32::omega(float f)
+{
+	float fs = _sample_rate_Hz * (_multirate ? (float)INTERPOLATION : 1.0f);
+	return 1.0f - expf(-_twoPi * f / fs);
+}
+
 
 bool AudioEffectNonLinear_F32::begin(bool multirate)
 {
   if (multirate)
   {
-    arm_status int_init = arm_fir_interpolate_init_f32(&_interpolator, INTERPOLATION, INT_NUMTAPS, FIR_coeffs, _int_state, RAW_BUFFER_SIZE);
-    arm_status dec_init = arm_fir_decimate_init_f32(&_decimator, INT_NUMTAPS, INTERPOLATION, FIR_coeffs, _decim_state, INT_BUFFER_SIZE);
-    _multirate = int_init == ARM_MATH_SUCCESS && dec_init == ARM_MATH_SUCCESS;
-    return _multirate;
+    if (!_multirate)
+    {
+      arm_status int_init = arm_fir_interpolate_init_f32(&_interpolator, INTERPOLATION, INT_NUMTAPS, FIR_coeffs, _int_state, RAW_BUFFER_SIZE);
+      arm_status dec_init = arm_fir_decimate_init_f32(&_decimator, INT_NUMTAPS, INTERPOLATION, FIR_coeffs, _decim_state, INT_BUFFER_SIZE);
+      _multirate = int_init == ARM_MATH_SUCCESS && dec_init == ARM_MATH_SUCCESS;
+    }
   }
+  else _multirate = false;
   
-  _multirate = false;
-  return true;
+  _gla = 0.002f * (_multirate ? 1.0f : (float)INTERPOLATION);
+
+  gain();
+  tone();
+  bottom();
+  level();
+
+  return _multirate;
 }
 
 void AudioEffectNonLinear_F32::gain(float gain)
 {
-  _gain = gain < 0.0f ? 0.0f : gain;
+  gain = fabs(gain);
+  _active = gain > 1.0f;
+  _gain = gain * (_multirate ? (float)INTERPOLATION : 1.0f);
 }
 
-void AudioEffectNonLinear_F32::curve(float curve)
+void AudioEffectNonLinear_F32::bottom(float bottom)
 {
-  _curve = curve < 0.0f ? 0.0f : curve;
-}
+  bottom = bottom < 0.0f ? 0.0f : bottom > 1.0f ? 1.0f : bottom;
+  bottom = 1.0f - bottom;
+  	
+  float fpre = (bottom * 350.0f) + 50.0f;
+  float fpost = 50.0f;	
 
-void AudioEffectNonLinear_F32::clip(float clip)
-{
-  _clip = clip < 0.0f ? 0.0f : clip > 1.0f ? 1.0f : clip;
+  _hpa_pre1 = omega(fpre);
+  _hpa_pre2 = omega(fpre);
+  _hpa_post = omega(fpost);
 }
 
 void AudioEffectNonLinear_F32::tone(float tone)
 {
   tone = tone < 0.0f ? 0.0f : tone > 1.0f ? 1.0f : tone;
-  _lpa = (tone * tone * 0.99f) + 0.01f;
+  
+  float f1 = (tone * 8000.0f) + 800.0f;
+  float f2 = 10000.0f;
+
+  _lpa1 = omega(f1);
+  _lpa2 = omega(f2);
 }
 
 void AudioEffectNonLinear_F32::level(float level)
 {
-  _level = level < 0.0f ? 0.0f : level;
+  _level = level;
 }
 
 void AudioEffectNonLinear_F32::update(void)
 {
-  float sample;
+  float sample; //, sabs, sign, knee;
 
   audio_block_f32_t *block = AudioStream_F32::receiveWritable_f32(0);
   if (!block) return;
@@ -126,8 +163,6 @@ void AudioEffectNonLinear_F32::update(void)
   
   if (_multirate)
   {
-    // Compensate for interpolation losses
-    arm_scale_f32(block->data, (float)INTERPOLATION, block->data, block->length);
     // Interpolate
     arm_fir_interpolate_f32(&_interpolator, block->data, _interpolated, block->length);
     len *= INTERPOLATION;
@@ -138,29 +173,31 @@ void AudioEffectNonLinear_F32::update(void)
   {
     sample = *p;
 
-    // dc block
-    sample -= (_dcpre += (sample - _dcpre) * _dca);
+    // 2nd order high pass (to block dc & remove some low end)
+    if (_active)
+	{
+		sample -= (_hppre1 += (sample - _hppre1) * _hpa_pre1);
+		sample -= (_hppre2 += (sample - _hppre2) * _hpa_pre2);
+	}
     
-    // Apply gain
-    sample *= _gain;
+    // Apply smoothed gain
+    sample *= (_sm_gain += (_gain - _sm_gain) * (_gain > _sm_gain ? _gla : 1.0f));
     
-    // Apply curve
-    sample = (_curve + 1.0f) * sample / (1.0f + _curve * fabsf(sample));
+    if (_active)
+    {
+      // Hard clipper
+      sample = sample < -1.0f ? -1.0f : sample > 1.0f ? 1.0f : sample;
+      
+      // 2nd order low pass filter (to control harmonics)
+      sample = (_lpf1 += (sample - _lpf1) * _lpa1);
+      sample = (_lpf2 += (sample - _lpf2) * _lpa2);    
+
+      // 1st order high pass (to restore dc balance)
+      sample -= (_hppost += (sample - _hppost) * _hpa_post);
+    }
     
-    // Hard clip
-    sample = sample < -_clip ? -_clip : sample > _clip ? _clip : sample;
-    
-    // Apply cubic
-    if (sample > 0.0f) sample -= sample * sample * sample * (1.0f / 3.0f);
-    
-    // 1st order filter to remove harsh harmonics
-    sample = (_lpf += (sample - _lpf) * _lpa);
-    
-    // dc block
-    sample -= (_dcpost += (sample - _dcpost) * _dca);
-    
-    // Apply level
-    sample *= _level;
+    // Apply smoothed level
+    sample *= (_sm_level += (_level - _sm_level) * (_level > _sm_level ? _gla : 1.0f));
    
     *p = sample;
     p++;
@@ -168,7 +205,7 @@ void AudioEffectNonLinear_F32::update(void)
 
   // Decimate
   if (_multirate) arm_fir_decimate_f32(&_decimator, _interpolated, block->data, len);
-
+  
   AudioStream_F32::transmit(block);
   AudioStream_F32::release(block);
 }
