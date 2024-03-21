@@ -15,7 +15,7 @@
 #define INTERPOLATION   5
 #define RAW_BUFFER_SIZE 128
 #define INT_BUFFER_SIZE (RAW_BUFFER_SIZE * INTERPOLATION)
-#define INT_NUMTAPS   75
+#define INT_NUMTAPS   125
 
 
 class AudioEffectNonLinear_F32 : public AudioStream_F32
